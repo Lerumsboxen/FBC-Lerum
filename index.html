@@ -597,17 +597,28 @@ function showToast(msg, duration=2800) {
 }
 
 function xhrPost(url, body) {
-  // Use text/plain to avoid CORS preflight — Apps Script handles both equally
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(body),
-  }).then(r => {
-    const ct = r.headers.get('content-type') || '';
-    if (ct.includes('text/html')) {
-      return r.text().then(t => { throw new Error('Got HTML instead of JSON. Script URL may be wrong or not deployed.'); });
-    }
-    return r.json();
+  // Use XMLHttpRequest — follows Google Apps Script redirects correctly.
+  // fetch() fails on the redirect chain that Apps Script uses.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'text/plain');
+    xhr.onload = () => {
+      try {
+        const text = xhr.responseText;
+        if (text.startsWith('<')) {
+          reject(new Error('Script returnerade HTML — kontrollera att URL:en är korrekt och att skriptet är deployed som Web App'));
+          return;
+        }
+        resolve(JSON.parse(text));
+      } catch(e) {
+        reject(new Error('Kunde inte tolka svar: ' + xhr.responseText.substring(0, 100)));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Nätverksfel — kontrollera att Script URL är korrekt'));
+    xhr.ontimeout = () => reject(new Error('Timeout — scriptet svarar inte'));
+    xhr.timeout = 15000;
+    xhr.send(JSON.stringify(body));
   });
 }
 
@@ -628,36 +639,26 @@ async function testConnection() {
   res.style.color = 'var(--muted)';
   res.textContent = '⟳ Testar…';
   try {
-    // First try GET ping
-    const getResp = await fetch(url + '?action=ping');
-    const getText = await getResp.text();
-    if (getText.includes('FBC Lerum') || getText.includes('POST')) {
-      // GET works, try POST
-      const postData = await xhrPost(url, { action: 'getProgram' });
-      if (postData.error) {
-        res.style.background = 'rgba(232,52,26,0.15)';
-        res.style.color = '#f87171';
-        res.textContent = '⚠ Script svarade med fel: ' + postData.error;
-      } else if (postData.program) {
-        const days = Object.keys(postData.program).length;
-        res.style.background = 'rgba(74,207,125,0.15)';
-        res.style.color = '#4ade80';
-        res.textContent = '✓ Anslutning OK! Hittade ' + days + ' programdagar.';
-        // Save URL and sync
-        SCRIPT_URL = url;
-        localStorage.setItem('fbc_script_url', url);
-        program = postData.program;
-        saveProgram();
-        if (urlEl) urlEl.style.borderColor = 'var(--green)';
-      } else {
-        res.style.background = 'rgba(251,191,36,0.15)';
-        res.style.color = '#fbbf24';
-        res.textContent = '⚠ Script svarade men inget program hittades. Kontrollera kalkylbladet. Svar: ' + JSON.stringify(postData).substring(0, 200);
-      }
-    } else {
+    const postData = await xhrPost(url, { action: 'getProgram' });
+    if (postData.error) {
       res.style.background = 'rgba(232,52,26,0.15)';
       res.style.color = '#f87171';
-      res.textContent = '⚠ Oväntat GET-svar: ' + getText.substring(0, 150);
+      res.textContent = '⚠ Script fel: ' + postData.error;
+    } else if (postData.program && Object.keys(postData.program).length > 0) {
+      const days = Object.keys(postData.program).length;
+      res.style.background = 'rgba(74,207,125,0.15)';
+      res.style.color = '#4ade80';
+      res.textContent = '✓ Anslutning OK! Hittade ' + days + ' programdagar. Program synkat!';
+      SCRIPT_URL = url;
+      localStorage.setItem('fbc_script_url', url);
+      program = postData.program;
+      saveProgram();
+      if (urlEl) urlEl.style.borderColor = '#4ade80';
+      if (currentSection === 'program') selectSection('program');
+    } else {
+      res.style.background = 'rgba(251,191,36,0.15)';
+      res.style.color = '#fbbf24';
+      res.textContent = '⚠ Script svarade men inget program hittades i kalkylarket. Svar: ' + JSON.stringify(postData).substring(0, 150);
     }
   } catch(err) {
     res.style.background = 'rgba(232,52,26,0.15)';
