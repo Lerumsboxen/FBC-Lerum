@@ -597,9 +597,10 @@ function showToast(msg, duration=2800) {
 }
 
 function xhrPost(url, body) {
+  // Use text/plain to avoid CORS preflight — Apps Script handles both equally
   return fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(body),
   }).then(r => r.json());
 }
@@ -687,12 +688,13 @@ function openProfileModal() {
           Välkommen! Ange ditt namn för att komma igång.
         </p>` : ''}
 
-        ${!SCRIPT_URL ? `
         <div class="form-group">
           <label class="form-label">Apps Script URL</label>
-          <input class="form-input" id="pScriptUrl" type="url" placeholder="https://script.google.com/..." value="${SCRIPT_URL}">
-          <div style="font-size:0.7rem;color:var(--muted);margin-top:0.3rem;">Kräver av admin för synkronisering</div>
-        </div>` : ''}
+          <input class="form-input" id="pScriptUrl" type="url" placeholder="https://script.google.com/macros/s/..." value="${SCRIPT_URL}">
+          <div style="font-size:0.7rem;color:${SCRIPT_URL ? 'var(--green)' : 'var(--muted)'};margin-top:0.3rem;">
+            ${SCRIPT_URL ? '✓ URL inlagd' : 'Krävs för synkronisering — fråga admin'}
+          </div>
+        </div>
 
         <div style="display:flex;gap:0.75rem;">
           <div class="form-group" style="flex:1;">
@@ -759,8 +761,16 @@ function saveProfile() {
 
   if (isNew && SCRIPT_URL) {
     xhrPost(SCRIPT_URL, { action: 'registerMember', firstName: fn, lastName: ln, avatar: av })
-      .then(() => { showToast('✓ Registrerad!'); fetchMembers(); syncProgram(); })
-      .catch(() => showToast('Registrerat lokalt (offline)'));
+      .then(data => {
+        if (data.error) { showToast('⚠ Serverfel: ' + data.error, 5000); return; }
+        showToast('✓ Registrerad!');
+        fetchMembers();
+        syncProgram();
+      })
+      .catch(err => {
+        console.error('Register error:', err);
+        showToast('⚠ Anslutningsfel — kontrollera Script URL', 5000);
+      });
   } else {
     showToast('✓ Profil sparad');
   }
@@ -800,31 +810,39 @@ function applyAdminVisibility() {
 // ── SYNC ────────────────────────────────────────────────────────
 async function syncAll() {
   if (!SCRIPT_URL) {
-    showToast('Ange Script URL i profilen');
+    showToast('⚠ Ange Script URL i profilen');
     openProfileModal();
     return;
   }
-  showToast('⟳ Synkroniserar…');
-  await Promise.all([syncProgram(), fetchMembers(), cloudPull()]);
-  showToast('✓ Synkronisering klar');
+  showToast('⟳ Synkroniserar…', 5000);
+  try {
+    await Promise.all([syncProgram(), fetchMembers(), cloudPull()]);
+  } catch(e) {
+    showToast('⚠ Synkfel — kontrollera URL och internetanslutning', 5000);
+  }
 }
 
 async function syncProgram() {
-  if (!SCRIPT_URL) return;
+  if (!SCRIPT_URL) { showToast('⚠ Ange Script URL i profilen'); return; }
   try {
     const data = await xhrPost(SCRIPT_URL, { action: 'getProgram' });
-    if (data.program) {
+    if (data.error) { console.error('Program sync error:', data.error); showToast('⚠ Programfel: ' + data.error, 4000); return; }
+    if (data.program && Object.keys(data.program).length > 0) {
       program = data.program;
       saveProgram();
+      showToast('✓ Program synkat (' + Object.keys(program).length + ' dagar)');
       if (currentSection === 'program') selectSection('program');
+    } else {
+      showToast('⚠ Inget program hittades i kalkylarket', 4000);
     }
-  } catch(e) { console.warn('Sync program failed:', e); }
+  } catch(e) { console.error('Sync program failed:', e); showToast('⚠ Synkfel: ' + e.message, 4000); }
 }
 
 async function fetchMembers() {
   if (!SCRIPT_URL) return;
   try {
     const data = await xhrPost(SCRIPT_URL, { action: 'getMembers' });
+    if (data.error) { console.error('Members error:', data.error); return; }
     if (data.members) {
       members = data.members;
       saveMembers();
