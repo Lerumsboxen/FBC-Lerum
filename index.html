@@ -238,9 +238,13 @@ main { position: relative; z-index: 1; }
 }
 .prog-block-body {
   padding: 0 0.85rem 0.75rem;
-  font-size: 0.85rem; line-height: 1.55; white-space: pre-wrap;
+  font-size: 0.85rem; line-height: 1.7;
   border-top: 1px solid var(--border);
 }
+.prog-block-body br { margin-bottom: 0.1rem; }
+.prog-block-body strong { color: var(--text); font-weight: 700; }
+.prog-block-body em { color: #c8c4c0; font-style: italic; }
+.prog-block-body u { text-decoration: underline; text-underline-offset: 2px; }
 .prog-block-body.collapsed { display: none; }
 
 /* ── LOG ──────────────────────────────────────────────── */
@@ -444,15 +448,21 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 <!-- HEADER -->
 <header>
   <div class="hdr-logo">
-    <!-- FBC Lerum Panther SVG Logo -->
-    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="2" y="10" width="36" height="32" rx="4" fill="#8b1a2e"/>
-      <!-- Panther body -->
-      <path d="M2 20 Q6 14 14 16 Q20 15 26 10 Q32 6 38 8 Q44 9 44 14 Q44 18 40 20 Q36 24 34 30 Q32 36 36 40 Q34 41 32 40 Q29 36 30 30 Q28 38 25 40 Q22 41 24 38 Q24 34 22 30 Q18 24 14 26 Q10 28 8 24 Q4 26 2 22 Z" fill="#111"/>
+    <!-- FBC Lerum Panther Logo — running panther silhouette -->
+    <svg viewBox="0 0 56 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:48px;height:34px;">
+      <!-- Crimson background rectangle -->
+      <rect x="8" y="8" width="46" height="28" rx="3" fill="#8b1a2e"/>
+      <!-- Panther body — running silhouette -->
+      <!-- Tail sweeping left -->
+      <path d="M4 22 Q2 18 4 15 Q6 13 8 16 Q9 18 8 20Z" fill="#0f0f0f"/>
+      <!-- Main body -->
+      <path d="M8 19 Q12 14 18 15 Q22 13 27 9 Q31 6 36 8 Q41 9 43 13 Q44 17 41 19 Q38 21 37 25 Q36 30 39 33 Q37 34 35 33 Q33 29 34 24 Q32 31 29 33 Q27 34 28 31 Q29 27 27 23 Q24 18 19 20 Q15 22 12 19 Q10 21 8 19Z" fill="#0f0f0f"/>
+      <!-- White outline on body (like the logo image) -->
+      <path d="M8 19 Q12 14 18 15 Q22 13 27 9 Q31 6 36 8 Q41 9 43 13 Q44 17 41 19 Q38 21 37 25 Q36 30 39 33 Q37 34 35 33 Q33 29 34 24 Q32 31 29 33 Q27 34 28 31 Q29 27 27 23 Q24 18 19 20 Q15 22 12 19 Q10 21 8 19Z" fill="none" stroke="white" stroke-width="0.8" opacity="0.6"/>
       <!-- Eye -->
-      <circle cx="38" cy="13" r="1.5" fill="#8b1a2e"/>
-      <!-- Tail -->
-      <path d="M2 20 Q0 22 1 26 Q2 28 4 26 Q6 24 6 22 Z" fill="#111"/>
+      <circle cx="40" cy="12" r="1.2" fill="white" opacity="0.9"/>
+      <!-- Ear -->
+      <path d="M37 8 Q39 5 41 7 Q39 9 37 8Z" fill="#0f0f0f"/>
     </svg>
     <span class="hdr-logo-text">FBC LERUM</span>
   </div>
@@ -1311,13 +1321,18 @@ function buildWeekStrip() {
       </div>`;
     }).join('') + `</div>`;
 }
-function enrichText(text) {
-  if (!text) return '';
-  // Highlight percentages and kg values
-  return text
-    .replace(/(\d+(?:[.,]\d+)?)\s*%/g, '<span style="color:var(--gold);">$1%</span>')
-    .replace(/(\d+(?:[.,]\d+)?)\s*kg/gi, '<span style="color:var(--green);">$1 kg</span>')
-    .replace(/(\d+(?:[.,]\d+)?)\s*s\b/g, '<span style="color:var(--blue);">$1s</span>');
+function enrichText(html) {
+  if (!html) return '';
+  // html may contain <strong>, <em>, <u> tags from the server
+  // Apply color highlights to numeric values in text segments only
+  // Split on HTML tags, process text segments, reassemble
+  const parts = html.split(/(<[^>]+>)/);
+  return parts.map((p, i) => {
+    if (p.startsWith('<')) return p; // HTML tag — leave alone
+    return p
+      .replace(/(\d+(?:[.,]\d+)?)\s*%/g, '<span style="color:var(--gold);">$1%</span>')
+      .replace(/(\d+(?:[.,]\d+)?)\s*kg/gi, '<span style="color:var(--green);">$1 kg</span>');
+  }).join('');
 }
 
 // ── PRs SECTION ───────────────────────────────────────────────────
