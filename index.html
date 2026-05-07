@@ -602,7 +602,68 @@ function xhrPost(url, body) {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(body),
-  }).then(r => r.json());
+  }).then(r => {
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('text/html')) {
+      return r.text().then(t => { throw new Error('Got HTML instead of JSON. Script URL may be wrong or not deployed.'); });
+    }
+    return r.json();
+  });
+}
+
+async function testConnection() {
+  const urlEl = document.getElementById('pScriptUrl');
+  const url = (urlEl?.value?.trim()) || SCRIPT_URL;
+  const res = document.getElementById('connTestResult');
+  if (!res) return;
+  if (!url) {
+    res.style.display = 'block';
+    res.style.background = 'rgba(232,52,26,0.15)';
+    res.style.color = '#f87171';
+    res.textContent = '⚠ Ingen URL angiven.';
+    return;
+  }
+  res.style.display = 'block';
+  res.style.background = 'rgba(255,255,255,0.05)';
+  res.style.color = 'var(--muted)';
+  res.textContent = '⟳ Testar…';
+  try {
+    // First try GET ping
+    const getResp = await fetch(url + '?action=ping');
+    const getText = await getResp.text();
+    if (getText.includes('FBC Lerum') || getText.includes('POST')) {
+      // GET works, try POST
+      const postData = await xhrPost(url, { action: 'getProgram' });
+      if (postData.error) {
+        res.style.background = 'rgba(232,52,26,0.15)';
+        res.style.color = '#f87171';
+        res.textContent = '⚠ Script svarade med fel: ' + postData.error;
+      } else if (postData.program) {
+        const days = Object.keys(postData.program).length;
+        res.style.background = 'rgba(74,207,125,0.15)';
+        res.style.color = '#4ade80';
+        res.textContent = '✓ Anslutning OK! Hittade ' + days + ' programdagar.';
+        // Save URL and sync
+        SCRIPT_URL = url;
+        localStorage.setItem('fbc_script_url', url);
+        program = postData.program;
+        saveProgram();
+        if (urlEl) urlEl.style.borderColor = 'var(--green)';
+      } else {
+        res.style.background = 'rgba(251,191,36,0.15)';
+        res.style.color = '#fbbf24';
+        res.textContent = '⚠ Script svarade men inget program hittades. Kontrollera kalkylbladet. Svar: ' + JSON.stringify(postData).substring(0, 200);
+      }
+    } else {
+      res.style.background = 'rgba(232,52,26,0.15)';
+      res.style.color = '#f87171';
+      res.textContent = '⚠ Oväntat GET-svar: ' + getText.substring(0, 150);
+    }
+  } catch(err) {
+    res.style.background = 'rgba(232,52,26,0.15)';
+    res.style.color = '#f87171';
+    res.textContent = '⚠ Fel: ' + err.message;
+  }
 }
 
 function isAdmin() {
@@ -721,6 +782,10 @@ function openProfileModal() {
         <button class="btn btn-crimson btn-full" onclick="saveProfile()">
           ${registered ? 'Spara ändringar' : 'Skapa konto'}
         </button>
+        <button class="btn btn-outline btn-full" style="margin-top:0.5rem;" onclick="testConnection()">
+          🔌 Testa anslutning
+        </button>
+        <div id="connTestResult" style="margin-top:0.5rem;font-size:0.75rem;padding:0.5rem;border-radius:4px;display:none;word-break:break-all;"></div>
         ${registered ? `<button class="btn btn-ghost btn-full" style="margin-top:0.5rem;" onclick="confirmLogout()">Logga ut</button>` : ''}
       </div>
     </div>
