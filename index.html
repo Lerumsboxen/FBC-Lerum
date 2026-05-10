@@ -500,7 +500,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     <button class="hnav-btn" id="hnav-prs" onclick="selectSection('prs')"><span class="hnav-icon">🏆</span>PRs</button>
     <button class="hnav-btn" id="hnav-members" onclick="selectSection('members')"><span class="hnav-icon">👥</span>Team</button>
     <button class="hnav-btn" id="hnav-admin" onclick="selectSection('admin')" style="display:none;"><span class="hnav-icon">🔑</span>Admin</button>
-    <button class="hnav-btn" id="hnav-attendance" onclick="selectSection('attendance')"><span class="hnav-icon">📌</span>Presence</button>
+
     <button class="hnav-btn" id="hnav-standings" onclick="selectSection('standings')"><span class="hnav-icon">🏑</span>Board</button>
   </div>
 </header>
@@ -545,10 +545,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
       <span class="home-btn-icon">👥</span>
       <span class="home-btn-label">Team</span>
     </button>
-    <button class="home-btn" id="hbtn-attendance" onclick="selectSection('attendance')">
-      <span class="home-btn-icon">📌</span>
-      <span class="home-btn-label">Presence</span>
-    </button>
+
     <button class="home-btn" id="hbtn-standings" onclick="selectSection('standings')">
       <span class="home-btn-icon">🏑</span>
       <span class="home-btn-label">Board</span>
@@ -1429,16 +1426,19 @@ function enrichText(html) {
 // Splits session text into [{label:'Part A', text:'...'}, ...]
 function splitIntoParts(text) {
   if (!text) return [];
-  const lines = text.split('\n');
+  // Normalize: replace <br> tags with newlines, then split
+  const normalized = text.replace(/<br\s*\/?>/gi, '\n');
+  const lines = normalized.split('\n');
   const plain = lines.map(l => l.replace(/<[^>]+>/g,'').trim());
-  const partRe = /^(?:Part\s+)?([A-Za-z])[.:)]/;
+  // Part header: "A.", "A:", "A)", "Part A", "PART A" — letter followed by . : )
+  const partRe = /^(?:(?:Part|PART)\s+)?([A-Za-z])[.:)]/;
   const indices = [];
   plain.forEach((p,i) => { if (partRe.test(p)) indices.push(i); });
   if (!indices.length) return [{ label: null, text: text.trim() }];
   return indices.map((from, pi) => {
     const to = pi+1 < indices.length ? indices[pi+1] : lines.length;
     const chunk = lines.slice(from, to).join('\n').trim();
-    const letter = plain[from].match(/^(?:Part\s+)?([A-Za-z])[.:)]/)?.[1]?.toUpperCase() || String.fromCharCode(65+pi);
+    const letter = plain[from].match(/^(?:(?:Part|PART)\s+)?([A-Za-z])[.:)]/)?.[1]?.toUpperCase() || String.fromCharCode(65+pi);
     return { label: 'Part ' + letter, text: chunk };
   });
 }
@@ -1447,7 +1447,9 @@ function splitIntoParts(text) {
 // Extracts sets, reps, pct%, movement name, and calculates weight from PR
 function parsePartScheme(text) {
   if (!text) return { sets:null, reps:null, weight:null, movement:null, pct:null };
-  const lines = text.replace(/<[^>]+>/g,'').split('\n').map(l=>l.trim()).filter(Boolean);
+  // Normalize <br> to newlines before stripping HTML
+  const normalized = text.replace(/<br\s*\/?>/gi, '\n');
+  const lines = normalized.replace(/<[^>]+>/g,'').split('\n').map(l=>l.trim()).filter(Boolean);
   // Skip primer/warmup lines (negative %)
   const filtered = lines.filter(l => !/at\s+-\d+\s*%/.test(l));
 
@@ -1892,7 +1894,7 @@ function renderMembers() {
   const el = document.getElementById('memberList');
   if (!el) return;
   const q = (document.getElementById('memberSearch')?.value||'').toLowerCase();
-  const list = members.filter(m => !q || m.name.toLowerCase().includes(q));
+  const list = members.filter(m => !q || m.name.toLowerCase().includes(q)).sort((a,b) => a.name.localeCompare(b.name, 'sv'));
 
   if (!list.length) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><p>${members.length?'Inga träffar.':'Hämtar lagmedlemmar…'}</p><button class="btn btn-ghost btn-sm" onclick="fetchMembers()">⟳ Ladda lag</button></div>`;
