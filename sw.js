@@ -1,5 +1,5 @@
 // FBC Lerum Service Worker — Offline-first PWA
-const CACHE = 'fbclerum-v1';
+const CACHE = 'fbclerum-v3';
 const ASSETS = [
   './',
   './index.html',

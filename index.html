@@ -712,7 +712,6 @@ const SECTIONS = {
   timer:      { icon:'⏱', label:'Timer',     build: buildTimer,      render: () => {} },
   prs:        { icon:'🏆', label:'PRs',       build: buildPRs,        render: renderPRs },
   members:    { icon:'👥', label:'Team',      build: buildMembers,    render: renderMembers },
-  attendance: { icon:'📌', label:'Presence',  build: buildAttendance, render: renderAttendance },
   standings:  { icon:'🏑', label:'Board',     build: buildStandings,  render: renderStandings },
   admin:      { icon:'🔑', label:'Admin',     build: buildAdmin,      render: renderAdmin },
 };
@@ -1237,7 +1236,6 @@ function openPRModal(prefillMovement) {
       </div>
     </div>
   </div>`;
-}
   // Pre-fill movement if provided
   if (prefillMovement) {
     setTimeout(() => {
