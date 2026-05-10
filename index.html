@@ -300,7 +300,25 @@ main { position: relative; z-index: 1; }
 .pr-name { font-family: 'Barlow Condensed'; font-weight: 700; font-size: 0.88rem; flex: 1; min-width: 0; }
 .pr-val { font-family: 'Bebas Neue'; font-size: 1rem; color: var(--green); flex-shrink: 0; }
 
-/* ── TIMER ────────────────────────────────────────────── */
+/* ── SET ROWS ──────────────────────────────────────────── */
+  .set-rows-header {
+    display: grid; grid-template-columns: 2rem 1fr 1fr 1fr 1.5rem;
+    gap: 0.35rem; align-items: center;
+    font-family: 'Barlow Condensed'; font-weight: 700; font-size: 0.65rem;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+    padding: 0 0.1rem; margin-bottom: 0.2rem;
+  }
+  .set-row {
+    display: grid; grid-template-columns: 2rem 1fr 1fr 1fr 1.5rem;
+    gap: 0.35rem; align-items: center; margin-bottom: 0.35rem;
+  }
+  .set-row-label { font-family: 'Bebas Neue'; font-size: 0.85rem; color: var(--muted); text-align: center; }
+  .set-row input { padding: 0.4rem 0.5rem; background: var(--card2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; width: 100%; min-width: 0; }
+  .set-row input:focus { outline: none; border-color: var(--crimson); }
+  .del-set-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.85rem; padding: 0; }
+  .del-set-btn:hover { color: var(--red); }
+
+  /* ── TIMER ────────────────────────────────────────────── */
 .timer-display {
   font-family: 'Bebas Neue'; font-size: clamp(3.5rem,18vw,6rem);
   letter-spacing: 0.05em; text-align: center; color: var(--text);
@@ -1049,11 +1067,12 @@ function toggleLogEntry(id) {
 }
 function renderSessionParts(parts) {
   if (!parts || typeof parts !== 'object') return '';
-  return Object.entries(parts).map(([k,v]) => `
-    <div style="margin-top:0.4rem;padding:0.4rem 0.5rem;background:var(--card2);border-radius:4px;">
-      <div style="font-family:'Barlow Condensed';font-weight:700;font-size:0.75rem;color:var(--muted);">${k}</div>
-      <div style="font-size:0.8rem;white-space:pre-wrap;">${v}</div>
-    </div>`).join('');
+  return Object.entries(parts)
+    .filter(([k]) => !k.endsWith('_sets'))
+    .map(([k,v]) => '<div style="margin-top:0.4rem;padding:0.4rem 0.5rem;background:var(--card2);border-radius:4px;">'
+      + '<div style="font-family:Barlow Condensed;font-weight:700;font-size:0.75rem;color:var(--muted);">' + k + '</div>'
+      + '<div style="font-size:0.8rem;white-space:pre-wrap;">' + v + '</div>'
+      + '</div>').join('');
 }
 
 // ── SESSION MODAL ────────────────────────────────────────────────
@@ -1076,7 +1095,7 @@ function openSessionModal(prefillFromProgram) {
           <div class="form-group" style="flex:1;">
             <label class="form-label">Typ</label>
             <select class="form-input" id="sType">
-              ${types.map(t=>`<option value="${t}" ${t==='WOD'?'selected':''}>${t}</option>`).join('')}
+              ${types.map(t=>'<option value="'+t+'" '+(t==='WOD'?'selected':'')+'>'+t+'</option>').join('')}
             </select>
           </div>
         </div>
@@ -1170,7 +1189,7 @@ function openPRModal() {
           <label class="form-label">Rörelse</label>
           <input class="form-input" id="prMov" list="prMovList" placeholder="Välj eller skriv...">
           <datalist id="prMovList">
-            ${PR_MOVEMENTS.map(m=>`<option value="${m}">`).join('')}
+            ${PR_MOVEMENTS.map(m=>'<option value="'+m+'">').join('')}
           </datalist>
         </div>
         <div style="display:flex;gap:0.5rem;">
@@ -1233,6 +1252,70 @@ let progViewDate = localIso(new Date());
 function buildProgram() {
   return `<div id="progContainer"></div>`;
 }
+function toggleProgBlock(header) {
+  const body = header.nextElementSibling;
+  if (body) body.classList.toggle('collapsed');
+}
+
+// Build a collapsible program block with per-part log buttons
+function buildProgBlock(title, icon, html, color, dateStr) {
+  const parts = splitIntoParts(html);
+  const hasParts = parts.length > 1 || (parts.length === 1 && parts[0].label);
+
+  function logBtn(partLabel, partText) {
+    // Store part text in a global map keyed by a random id to avoid escaping issues
+    const key = 'pbk_' + Math.random().toString(36).slice(2);
+    window._partTextMap = window._partTextMap || {};
+    window._partTextMap[key] = partText;
+    const scheme = parsePartScheme(partText);
+    const kgBadge = scheme.weight
+      ? '<span style="font-family:Bebas Neue;font-size:0.9rem;color:var(--green);margin-right:0.3rem;">' + scheme.weight + ' kg</span>'
+      : '';
+    const sTitle = title.replace(/'/g, '\\x27').replace(/"/g, '\\x22');
+    const sPart  = (partLabel||'').replace(/'/g, '\\x27').replace(/"/g, '\\x22');
+    const btn = '<button onclick="openPartLogByKey(\\\'' + key + '\\\',\\\'' + sTitle + '\\\',\\\'' + sPart + '\\\',\\\'' + dateStr + '\'\')" style="padding:0.18rem 0.5rem;background:var(--crimson);color:#fff;border:none;border-radius:3px;font-family:Barlow Condensed;font-weight:700;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ Logga</button>';
+    return kgBadge + btn;
+  }
+
+  if (!hasParts) {
+    const pt = parts[0]?.text || html;
+    return '<div class="prog-block">'
+      + '<div class="prog-block-header" onclick="toggleProgBlock(this)">'
+      + '<span class="prog-block-label" style="color:' + color + ';">' + icon + ' ' + title + '</span>'
+      + '<span style="display:flex;align-items:center;gap:0.5rem;">' + logBtn('', pt)
+      + '<span style="color:var(--muted);font-size:0.7rem;margin-left:0.25rem;">▼</span></span>'
+      + '</div>'
+      + '<div class="prog-block-body">' + enrichText(html) + '</div>'
+      + '</div>';
+  }
+
+  const partsHtml = parts.map(function(part) {
+    return '<div style="border-top:1px solid var(--border);padding:0.55rem 0 0.3rem;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.3rem;">'
+      + '<span style="font-family:Barlow Condensed;font-weight:700;font-size:0.8rem;letter-spacing:0.08em;text-transform:uppercase;color:' + color + ';">' + (part.label||'') + '</span>'
+      + '<span style="display:flex;align-items:center;gap:0.3rem;">' + logBtn(part.label||'', part.text) + '</span>'
+      + '</div>'
+      + '<div style="font-size:0.83rem;line-height:1.65;">' + enrichText(part.text) + '</div>'
+      + '</div>';
+  }).join('');
+
+  return '<div class="prog-block">'
+    + '<div class="prog-block-header" onclick="toggleProgBlock(this)">'
+    + '<span class="prog-block-label" style="color:' + color + ';">' + icon + ' ' + title + '</span>'
+    + '<span style="color:var(--muted);font-size:0.7rem;">▼</span>'
+    + '</div>'
+    + '<div class="prog-block-body">' + partsHtml + '</div>'
+    + '</div>';
+}
+
+// Called from log buttons — looks up stored part text by key
+function openPartLogByKey(key, sessionName, partLabel, dateStr) {
+  const text = (window._partTextMap || {})[key] || '';
+  openPartLog(sessionName, partLabel, text, dateStr);
+}
+
+
+
 function renderProgram() {
   const el = document.getElementById('progContainer');
   if (!el) return;
@@ -1267,22 +1350,8 @@ function renderProgram() {
       + Logga session
     </button>
   </div>
-  ${data.strength ? `
-  <div class="prog-block">
-    <div class="prog-block-header" onclick="this.nextElementSibling.classList.toggle('collapsed')">
-      <span class="prog-block-label" style="color:var(--gold);">💪 Styrka</span>
-      <span style="color:var(--muted);font-size:0.75rem;">▼</span>
-    </div>
-    <div class="prog-block-body">${enrichText(data.strength)}</div>
-  </div>` : ''}
-  ${data.workout ? `
-  <div class="prog-block">
-    <div class="prog-block-header" onclick="this.nextElementSibling.classList.toggle('collapsed')">
-      <span class="prog-block-label" style="color:var(--crimson);">🏑 WOD</span>
-      <span style="color:var(--muted);font-size:0.75rem;">▼</span>
-    </div>
-    <div class="prog-block-body">${enrichText(data.workout)}</div>
-  </div>` : ''}
+  ${data.strength ? buildProgBlock('Styrka', '💪', data.strength, 'var(--gold)', d) : ''}
+  ${data.workout  ? buildProgBlock('WOD',   '🏑', data.workout,  'var(--crimson)', d) : ''}
   ` : `
   <div class="empty-state">
     <div class="empty-icon">📅</div>
@@ -1309,30 +1378,270 @@ function buildWeekStrip() {
   const monday = new Date(d); monday.setDate(d.getDate() - (dow === 0 ? 6 : dow-1));
   const days = [];
   for (let i=0;i<7;i++) { const nd=new Date(monday); nd.setDate(monday.getDate()+i); days.push(localIso(nd)); }
-  return `<div style="display:flex;gap:0.25rem;">` +
-    days.map(dd => {
-      const has = !!program[dd];
-      const isT = dd===today;
-      const isSel = dd===progViewDate;
-      const dayLetter = new Date(dd+'T00:00:00').toLocaleDateString('sv-SE',{weekday:'narrow'});
-      return `<div onclick="progJump('${dd}')" style="flex:1;text-align:center;cursor:pointer;padding:0.35rem 0.1rem;border-radius:4px;background:${isSel?'var(--crimson)':has?'rgba(139,26,46,0.15)':'var(--card)'};border:1px solid ${isT?'var(--gold)':isSel?'transparent':'var(--border)'};">
-        <div style="font-size:0.55rem;color:${isSel?'#fff':'var(--muted)'};font-family:'Barlow Condensed';font-weight:700;">${dayLetter}</div>
-        <div style="font-size:0.7rem;color:${isSel?'#fff':has?'var(--text)':'var(--muted)'};font-weight:600;">${has?'●':'·'}</div>
-      </div>`;
-    }).join('') + `</div>`;
+  const cells = days.map(dd => {
+    const has = !!program[dd];
+    const isT = dd===today;
+    const isSel = dd===progViewDate;
+    const dayLetter = new Date(dd+'T00:00:00').toLocaleDateString('sv-SE',{weekday:'narrow'});
+    const bg = isSel ? 'var(--crimson)' : has ? 'rgba(139,26,46,0.15)' : 'var(--card)';
+    const border = isT ? 'var(--gold)' : isSel ? 'transparent' : 'var(--border)';
+    const textCol = isSel ? '#fff' : 'var(--muted)';
+    const numCol = isSel ? '#fff' : has ? 'var(--text)' : 'var(--muted)';
+    return '<div onclick="progJump(\'' + dd + '\')" style="flex:1;text-align:center;cursor:pointer;padding:0.35rem 0.1rem;border-radius:4px;background:' + bg + ';border:1px solid ' + border + ';">'
+      + '<div style="font-size:0.55rem;color:' + textCol + ';font-family:Barlow Condensed;font-weight:700;">' + dayLetter + '</div>'
+      + '<div style="font-size:0.7rem;color:' + numCol + ';font-weight:600;">' + (has?'●':'·') + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div style="display:flex;gap:0.25rem;">' + cells + '</div>';
 }
+// ── PR LOOKUP ─────────────────────────────────────────────────
+function getBestPR(movementName) {
+  if (!movementName) return null;
+  const name = movementName.toLowerCase().trim();
+  let candidates = (state.prs || []).filter(p => p.movement && p.movement.toLowerCase() === name);
+  if (!candidates.length) {
+    candidates = (state.prs || []).filter(p => p.movement &&
+      (p.movement.toLowerCase().includes(name) || name.includes(p.movement.toLowerCase())));
+  }
+  return candidates.sort((a,b) => b.value - a.value)[0] || null;
+}
+
+function calcKg(pct, movementName) {
+  const pr = getBestPR(movementName);
+  if (!pr) return null;
+  return Math.round(pr.value * pct / 100 * 2) / 2;
+}
+
+// ── ENRICH TEXT ────────────────────────────────────────────────
+// Highlights %, kg, and inserts calculated weights from PRs
 function enrichText(html) {
   if (!html) return '';
-  // html may contain <strong>, <em>, <u> tags from the server
-  // Apply color highlights to numeric values in text segments only
-  // Split on HTML tags, process text segments, reassemble
   const parts = html.split(/(<[^>]+>)/);
-  return parts.map((p, i) => {
-    if (p.startsWith('<')) return p; // HTML tag — leave alone
+  return parts.map(p => {
+    if (p.startsWith('<')) return p;
     return p
-      .replace(/(\d+(?:[.,]\d+)?)\s*%/g, '<span style="color:var(--gold);">$1%</span>')
-      .replace(/(\d+(?:[.,]\d+)?)\s*kg/gi, '<span style="color:var(--green);">$1 kg</span>');
+      .replace(/(\d+(?:[.,]\d+)?)\s*%/g, '<span style="color:var(--gold);">$1%</span>')
+      .replace(/(\d+(?:[.,]\d+)?)\s*kg/gi, '<span style="color:var(--green);">$1&thinsp;kg</span>');
   }).join('');
+}
+
+// ── SPLIT INTO PARTS ───────────────────────────────────────────
+// Splits session text into [{label:'Part A', text:'...'}, ...]
+function splitIntoParts(text) {
+  if (!text) return [];
+  const lines = text.split('\n');
+  const plain = lines.map(l => l.replace(/<[^>]+>/g,'').trim());
+  const partRe = /^(?:Part\s+)?([A-Za-z])[.:)]/;
+  const indices = [];
+  plain.forEach((p,i) => { if (partRe.test(p)) indices.push(i); });
+  if (!indices.length) return [{ label: null, text: text.trim() }];
+  return indices.map((from, pi) => {
+    const to = pi+1 < indices.length ? indices[pi+1] : lines.length;
+    const chunk = lines.slice(from, to).join('\n').trim();
+    const letter = plain[from].match(/^(?:Part\s+)?([A-Za-z])[.:)]/)?.[1]?.toUpperCase() || String.fromCharCode(65+pi);
+    return { label: 'Part ' + letter, text: chunk };
+  });
+}
+
+// ── PARSE PART SCHEME ──────────────────────────────────────────
+// Extracts sets, reps, pct%, movement name, and calculates weight from PR
+function parsePartScheme(text) {
+  if (!text) return { sets:null, reps:null, weight:null, movement:null, pct:null };
+  const lines = text.replace(/<[^>]+>/g,'').split('\n').map(l=>l.trim()).filter(Boolean);
+  // Skip primer/warmup lines (negative %)
+  const filtered = lines.filter(l => !/at\s+-\d+\s*%/.test(l));
+
+  let sets=null, reps=null, pct=null, movement=null;
+
+  // Sets × reps: "6x3", "5x1+2", "4x2+2"
+  for (const l of filtered) {
+    const m = l.match(/(\d+)\s*[xX×]\s*(\d+(?:[+]\d+)*)/);
+    if (m) {
+      const s = parseInt(m[1]);
+      if (s <= 20) {
+        sets = s;
+        reps = m[2].split('+').map(Number).reduce((a,b)=>a+b,0);
+        break;
+      }
+    }
+  }
+
+  // Percentage (10–100, non-range)
+  for (const l of filtered) {
+    if (/\d+[,.]\d*\s*[-–]\s*\d+[,.]\d*\s*%/.test(l)) continue; // range → skip
+    const m = l.match(/(\d{2,3}(?:[,.]\d+)?)\s*%/);
+    if (m) { const v=parseFloat(m[1].replace(',','.')); if(v>=10&&v<=100){pct=v;break;} }
+  }
+
+  // Movement name: from "% of 1RM <Movement>" or from line with lift keyword
+  const liftRe = /snatch|clean|jerk|squat|deadlift|press|pull|curl|row|bench|lunge|thruster/i;
+  for (const l of filtered) {
+    const ofRm = l.match(/of\s+(?:\d+\s*)?RM\s+([A-Za-zÅÄÖåäö][A-Za-zÅÄÖåäö\s&+]*?)(?:\s*$)/i);
+    if (ofRm) { movement=ofRm[1].trim(); break; }
+  }
+  if (!movement) {
+    for (const l of filtered) {
+      if (liftRe.test(l)) {
+        movement = l.replace(/^\d+(?:[+]\d+)*\s*[xX*]\s*\d+(?:[+]\d+)*\s+at\s+/i,'')
+                    .replace(/\d+[,.]?\d*\s*%\s*(?:of\s+(?:\d+\s*)?RM\s*)?/gi,'').trim();
+        if (!liftRe.test(movement)) movement=null;
+        else break;
+      }
+    }
+  }
+
+  const weight = (pct && movement) ? calcKg(pct, movement) : null;
+  return { sets, reps, weight, movement, pct };
+}
+
+// ── SET ROW COUNTER ────────────────────────────────────────────
+let _setRowCount = 0;
+
+function _addSetRow(containerId, weight, reps) {
+  _setRowCount++;
+  const id = _setRowCount;
+  const row = document.createElement('div');
+  row.className = 'set-row';
+  row.dataset.setId = id;
+  row.innerHTML = '<div class="set-row-label">S' + id + '</div>'
+    + '<input type="number" id="psw-' + id + '" placeholder="kg" step="0.5" min="0" value="' + (weight??'') + '">'
+    + '<input type="number" id="psr-' + id + '" placeholder="reps" min="1" value="' + (reps??'') + '">'
+    + '<input type="number" id="pse-' + id + '" placeholder="RPE" min="1" max="10" step="0.5">'
+    + '<button class="del-set-btn" onclick="_removeSetRow(' + id + ',\''+containerId+'\')">&#x2715;</button>';
+  document.getElementById(containerId)?.appendChild(row);
+  _renumberSetRows(containerId);
+}
+
+function _removeSetRow(id, containerId) {
+  document.querySelector('[data-set-id="'+id+'"')?.remove();
+  _renumberSetRows(containerId);
+}
+
+function _renumberSetRows(containerId) {
+  document.querySelectorAll('#'+containerId+' .set-row').forEach((r,i) => {
+    const lbl = r.querySelector('.set-row-label');
+    if (lbl) lbl.textContent = 'S'+(i+1);
+  });
+}
+
+function _getSetRows(containerId) {
+  const rows = [];
+  document.querySelectorAll('#'+containerId+' .set-row').forEach(r => {
+    const id = r.dataset.setId;
+    rows.push({
+      weight: parseFloat(document.getElementById('psw-'+id)?.value)||null,
+      reps:   parseInt(document.getElementById('psr-'+id)?.value)||null,
+      rpe:    parseFloat(document.getElementById('pse-'+id)?.value)||null,
+    });
+  });
+  return rows.filter(r => r.weight || r.reps);
+}
+
+// ── OPEN PART LOG MODAL ────────────────────────────────────────
+function openPartLog(sessionName, partLabel, partText, dateStr) {
+  _setRowCount = 0;
+  const scheme = parsePartScheme(partText);
+  const isStrength = scheme.sets !== null || scheme.reps !== null || scheme.pct !== null;
+  const cid = 'partSetContainer';
+  const modalTitle = sessionName + (partLabel ? ' — ' + partLabel : '');
+
+  let kgHtml = '';
+  if (scheme.weight) {
+    kgHtml = '<div style="font-family:Bebas Neue;font-size:1.1rem;color:var(--green);text-align:center;margin-bottom:0.75rem;">'
+      + scheme.pct + '% = <span style="font-size:1.4rem;">' + scheme.weight + ' kg</span>'
+      + (scheme.movement ? '<span style="font-size:0.75rem;color:var(--muted);font-family:Barlow Condensed;"> of 1RM ' + scheme.movement + '</span>' : '')
+      + '</div>';
+  }
+
+  let inputHtml = '';
+  if (isStrength) {
+    inputHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">'
+      + '<span style="font-family:Barlow Condensed;font-weight:700;font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);">Sets</span>'
+      + '<button class="btn btn-ghost btn-sm" onclick="_addSetRowCurrent()">+ Set</button>'
+      + '</div>'
+      + '<div class="set-rows-header"><span>S</span><span>kg</span><span>Reps</span><span>RPE</span><span></span></div>'
+      + '<div id="' + cid + '"></div>';
+  } else {
+    inputHtml = '<div class="form-group"><label class="form-label">Resultat / Tid / Notering</label>'
+      + '<input class="form-input" id="partScore" placeholder="t.ex. 12:34 eller 145kg"></div>';
+  }
+
+  const sn = sessionName.replace(/'/g, "\'");
+  const pl = (partLabel||'').replace(/'/g, "\'");
+  const saveBtn = '<button class="btn btn-crimson btn-full" onclick="savePartLogCurrent()">'
+    + 'Spara ' + (isStrength ? 'styrka' : 'result') + '</button>';
+  window._partLogParams = { sessionName, partLabel, dateStr, isStrength, cid };
+  document.getElementById('modalContainer').innerHTML =
+    '<div class="modal-overlay" id="partLogModal">'
+    + '<div class="modal-box">'
+    + '<div class="modal-header">'
+    + '<span class="modal-title" style="font-size:0.95rem;">' + modalTitle + '</span>'
+    + '<button class="modal-close" onclick="closeModal(\'partLogModal\')">&#x2715;</button>'
+    + '</div>'
+    + '<div class="modal-body">'
+    + '<div style="background:var(--card2);border-radius:6px;padding:0.65rem 0.75rem;margin-bottom:0.85rem;font-size:0.8rem;line-height:1.6;">'
+    + enrichText(partText)
+    + '</div>'
+    + kgHtml
+    + inputHtml
+    + '<div class="form-group" style="margin-top:0.5rem;">'
+    + '<label class="form-label">Noteringar</label>'
+    + '<textarea class="form-input" id="partNotes" placeholder="Hur kändes det? Teknik..." rows="2"></textarea>'
+    + '</div>'
+    + saveBtn
+    + '</div></div></div>';
+
+  if (isStrength) {
+    const numSets = scheme.sets || 3;
+    for (let i = 0; i < Math.min(numSets, 10); i++) {
+      _addSetRow(cid, scheme.weight, scheme.reps);
+    }
+  }
+  setTimeout(() => {
+    const ov = document.getElementById('partLogModal');
+    if (ov) ov.addEventListener('click', e => { if (e.target.id === 'partLogModal') closeModal('partLogModal'); });
+  }, 100);
+}
+
+
+function savePartLogCurrent() {
+  const p = window._partLogParams || {};
+  savePartLog(p.sessionName||'', p.partLabel||'', p.dateStr||'', p.isStrength, p.cid||'partSetContainer');
+}
+
+function savePartLog(sessionName, partLabel, dateStr, isStrength, cid) {
+  const notes = document.getElementById('partNotes')?.value?.trim() || '';
+  let score = '';
+  let setsData = null;
+
+  if (isStrength) {
+    setsData = _getSetRows(cid);
+    if (!setsData.length) { showToast('Ange minst ett set'); return; }
+    score = setsData.map(s => [s.weight&&s.weight+'kg', s.reps&&s.reps+'×', s.rpe&&'@RPE'+s.rpe].filter(Boolean).join(' ')).join(' | ');
+  } else {
+    score = document.getElementById('partScore')?.value?.trim() || '';
+  }
+
+  // Find or create session for this date
+  let session = state.sessions.find(s => s.date===dateStr && s.name===sessionName);
+  if (!session) {
+    session = { id:uid(), name:sessionName, date:dateStr, type:isStrength?'Strength':'WOD', score:'', notes:'', parts:{} };
+    state.sessions.unshift(session);
+  }
+  if (!session.parts) session.parts = {};
+  const key = partLabel || 'Session';
+  session.parts[key] = score + (notes ? ('\n'+notes) : '');
+  if (setsData) session.parts[key+'_sets'] = JSON.stringify(setsData);
+
+  // Update attendance
+  if (!state.attendance[dateStr]) state.attendance[dateStr] = [];
+  if (!state.attendance[dateStr].includes(profile.name)) state.attendance[dateStr].push(profile.name);
+
+  save();
+  cloudPush('session', session);
+  closeModal('partLogModal');
+  showToast('✓ ' + (partLabel||'Session') + ' sparad!');
+  if (currentSection==='log') renderLog();
 }
 
 // ── PRs SECTION ───────────────────────────────────────────────────
@@ -1617,7 +1926,7 @@ function openMemberProfile(name) {
         ${isAdmin()&&m.name!==profile.name?`
         <button class="btn btn-outline btn-sm" style="margin-top:0.5rem;" onclick="closeModal('memberModal');adminViewMemberLogs('${m.name.replace(/'/g,"\\'")}')">
           📋 Se sessions & PRs
-        </button>`:``}
+        </button>` : ''}
       </div>
     </div>
   </div>`;
@@ -1873,7 +2182,7 @@ function mlSwitch(tab) {
         <div class="log-entry-body" id="${id}">
           ${item.score?`<div style="font-family:'Bebas Neue';font-size:1.1rem;color:var(--green);">Score: ${item.score}</div>`:''}
           ${item.notes?`<div style="font-size:0.8rem;color:var(--muted);white-space:pre-wrap;">${item.notes}</div>`:''}
-          ${item.parts?Object.entries(item.parts).map(([k,v])=>`<div style="margin-top:0.4rem;padding:0.4rem;background:var(--card2);border-radius:4px;"><div style="font-size:0.7rem;color:var(--muted);font-family:'Barlow Condensed';font-weight:700;">${k}</div><div style="font-size:0.8rem;">${v}</div></div>`).join(''):''}
+          ${item.parts?Object.entries(item.parts).map(([k,v])=>'<div style="margin-top:0.4rem;padding:0.4rem;background:var(--card2);border-radius:4px;"><div style="font-size:0.7rem;color:var(--muted);">'+k+'</div><div style="font-size:0.8rem;">'+v+'</div></div>').join(''):''}
         </div>
       </div>`;}).join('');
   } else {
