@@ -1260,17 +1260,15 @@ function buildProgBlock(title, icon, html, color, dateStr) {
   const hasParts = parts.length > 1 || (parts.length === 1 && parts[0].label);
 
   function logBtn(partLabel, partText) {
-    // Store part text in a global map keyed by a random id to avoid escaping issues
+    // Store ALL params in a global map — no quote escaping needed in onclick
     const key = 'pbk_' + Math.random().toString(36).slice(2);
-    window._partTextMap = window._partTextMap || {};
-    window._partTextMap[key] = partText;
+    window._partLogMap = window._partLogMap || {};
+    window._partLogMap[key] = { sessionName: title, partLabel: partLabel||'', partText, dateStr };
     const scheme = parsePartScheme(partText);
     const kgBadge = scheme.weight
       ? '<span style="font-family:Bebas Neue;font-size:0.9rem;color:var(--green);margin-right:0.3rem;">' + scheme.weight + ' kg</span>'
       : '';
-    const sTitle = title.replace(/'/g, '\\x27').replace(/"/g, '\\x22');
-    const sPart  = (partLabel||'').replace(/'/g, '\\x27').replace(/"/g, '\\x22');
-    const btn = '<button onclick="openPartLogByKey(\\\'' + key + '\\\',\\\'' + sTitle + '\\\',\\\'' + sPart + '\\\',\\\'' + dateStr + '\'\')" style="padding:0.18rem 0.5rem;background:var(--crimson);color:#fff;border:none;border-radius:3px;font-family:Barlow Condensed;font-weight:700;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ Logga</button>';
+    const btn = '<button onclick="openPartLogByKey(' + JSON.stringify(key) + ')" style="padding:0.18rem 0.5rem;background:var(--crimson);color:#fff;border:none;border-radius:3px;font-family:Barlow Condensed;font-weight:700;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ Logga</button>';
     return kgBadge + btn;
   }
 
@@ -1306,9 +1304,10 @@ function buildProgBlock(title, icon, html, color, dateStr) {
 }
 
 // Called from log buttons — looks up stored part text by key
-function openPartLogByKey(key, sessionName, partLabel, dateStr) {
-  const text = (window._partTextMap || {})[key] || '';
-  openPartLog(sessionName, partLabel, text, dateStr);
+function openPartLogByKey(key) {
+  const p = (window._partLogMap || {})[key];
+  if (!p) { showToast('Fel: del-data saknas, synka om'); return; }
+  openPartLog(p.sessionName, p.partLabel, p.partText, p.dateStr);
 }
 
 
