@@ -1166,13 +1166,37 @@ function deleteSession(id) {
 }
 
 // ── PR MODAL ─────────────────────────────────────────────────────
-const PR_MOVEMENTS = [
-  '40m Sprint','100m Sprint','1km Löpning','3km Löpning',
-  'Squat','Front Squat','Deadlift','Bench Press','Power Clean',
-  'Pull-ups','Push-ups','Broad Jump','Box Jump',
-  'Plank (tid)','Bänkpress','Hantelpress',
-];
-function openPRModal() {
+const PR_MOVEMENTS = {
+  'Barbell / Styrka': [
+    'Back Squat','Front Squat','Deadlift','Bench Press',
+    'Power Clean','Clean','Snatch','Push Press','Strict Press',
+    'Romanian Deadlift','Barbell Row','Hip Thrust',
+  ],
+  'Löpning': [
+    '20m Sprint','30m Sprint','40m Sprint','60m Sprint','100m Sprint',
+    '200m Löpning','400m Löpning','800m Löpning','1km Löpning',
+    '1.5km Löpning','3km Löpning','5km Löpning',
+  ],
+  'Rodd / Cykel': [
+    '500m Rodd','1000m Rodd','2000m Rodd','5km Rodd',
+    '500m AirBike','1000m AirBike',
+  ],
+  'Gymnastics': [
+    'Pull-ups','Chin-ups','Dips','Push-ups','Handstand Push-ups',
+    'Muscle-ups','Toes to Bar','Knees to Elbows',
+    'L-Sit (tid)','Plank (tid)','Wall Sit (tid)',
+  ],
+  'Hopp / Explosivitet': [
+    'Broad Jump','Vertical Jump','Box Jump','Triple Hop',
+  ],
+  'Övrigt': [
+    'Bänkpress','Hantelpress','Latsdrag','Chins',
+    'Barbell Seal Row','Barbell Hip Thrust',
+  ],
+};
+// Flat list for backwards compat
+const PR_MOVEMENTS_FLAT = Object.values(PR_MOVEMENTS).flat();
+function openPRModal(prefillMovement) {
   const today = localIso(new Date());
   document.getElementById('modalContainer').innerHTML = `
   <div class="modal-overlay" id="prModal">
@@ -1186,7 +1210,7 @@ function openPRModal() {
           <label class="form-label">Rörelse</label>
           <input class="form-input" id="prMov" list="prMovList" placeholder="Välj eller skriv...">
           <datalist id="prMovList">
-            ${PR_MOVEMENTS.map(m=>'<option value="'+m+'">').join('')}
+            ${(PR_MOVEMENTS_FLAT||[]).concat(state.prs.map(p=>p.movement)).filter((v,i,a)=>v&&a.indexOf(v)===i).sort((a,b)=>a.localeCompare(b,'sv')).map(m=>'<option value="'+m+'">' ).join('')}
           </datalist>
         </div>
         <div style="display:flex;gap:0.5rem;">
@@ -1214,6 +1238,15 @@ function openPRModal() {
     </div>
   </div>`;
 }
+  // Pre-fill movement if provided
+  if (prefillMovement) {
+    setTimeout(() => {
+      const el = document.getElementById('prMov');
+      if (el) el.value = prefillMovement;
+    }, 30);
+  }
+}
+
 function savePR() {
   const movement = document.getElementById('prMov')?.value?.trim();
   const value = parseFloat(document.getElementById('prVal')?.value);
@@ -1268,7 +1301,7 @@ function buildProgBlock(title, icon, html, color, dateStr) {
     const kgBadge = scheme.weight
       ? '<span style="font-family:Bebas Neue;font-size:0.9rem;color:var(--green);margin-right:0.3rem;">' + scheme.weight + ' kg</span>'
       : '';
-    const btn = '<button onclick="openPartLogByKey(' + JSON.stringify(key) + ')" style="padding:0.18rem 0.5rem;background:var(--crimson);color:#fff;border:none;border-radius:3px;font-family:Barlow Condensed;font-weight:700;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ Logga</button>';
+    const btn = '<button onclick="openPartLogByKey(\'' + key + '\')" style="padding:0.18rem 0.5rem;background:var(--crimson);color:#fff;border:none;border-radius:3px;font-family:Barlow Condensed;font-weight:700;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ Logga</button>';
     return kgBadge + btn;
   }
 
@@ -1638,51 +1671,110 @@ function savePartLog(sessionName, partLabel, dateStr, isStrength, cid) {
   if (!state.attendance[dateStr]) state.attendance[dateStr] = [];
   if (!state.attendance[dateStr].includes(profile.name)) state.attendance[dateStr].push(profile.name);
 
+  // Auto-create PR if a new heaviest weight was set
+  if (isStrength && setsData && setsData.length > 0) {
+    autoCheckPR(partLabel || sessionName, setsData, dateStr);
+  }
   save();
   cloudPush('session', session);
   closeModal('partLogModal');
   showToast('✓ ' + (partLabel||'Session') + ' sparad!');
   if (currentSection==='log') renderLog();
+  if (currentSection==='prs') renderPRs();
+}
+
+// Auto-create PR if a new heaviest weight beats existing record
+function autoCheckPR(movementHint, setsData, dateStr) {
+  // Find heaviest set
+  const heaviest = setsData.reduce((best, s) => (s.weight && s.weight > (best.weight||0)) ? s : best, {});
+  if (!heaviest.weight) return;
+  const reps = heaviest.reps || 1;
+  const rmLabel = reps === 1 ? '1RM' : reps + 'RM';
+  // Try to extract movement name from hint (strip "Part A" prefix if present)
+  let movement = movementHint.replace(/^Part\s+[A-Z]\s*[.:-]?\s*/i, '').trim() || movementHint;
+  // Match against known PR movements
+  const flat = PR_MOVEMENTS_FLAT;
+  const matched = flat.find(m => movement.toLowerCase().includes(m.toLowerCase()) || m.toLowerCase().includes(movement.toLowerCase())) || movement;
+  // Check if this beats the existing PR for this RM
+  const existing = state.prs.filter(p => p.movement.toLowerCase() === matched.toLowerCase() && (p.reps||1) === reps).sort((a,b)=>b.value-a.value)[0];
+  if (!existing || heaviest.weight > existing.value) {
+    const pr = { id: uid(), movement: matched, value: heaviest.weight, unit: 'kg', reps, rmLabel, date: dateStr, notes: 'Auto från session' };
+    state.prs.unshift(pr);
+    save();
+    cloudPush('pr', pr);
+    showToast('🏆 Ny ' + rmLabel + ' PR! ' + matched + ': ' + heaviest.weight + 'kg', 4000);
+  }
 }
 
 // ── PRs SECTION ───────────────────────────────────────────────────
 function buildPRs() {
-  return `
-  <div class="section-title">PRs</div>
-  <div style="display:flex;gap:0.5rem;margin-bottom:0.85rem;">
-    <button class="btn btn-crimson btn-sm" onclick="openPRModal()">+ Ny PR</button>
-    <input id="prSearch" class="form-input" style="flex:1;max-width:180px;padding:0.35rem 0.6rem;font-size:0.82rem;" placeholder="Sök rörelse…" oninput="renderPRs()">
-  </div>
-  <div id="prList"></div>`;
+  return '<div class="section-title">PRs</div>'
+    + '<div style="display:flex;gap:0.5rem;margin-bottom:0.85rem;">'
+    + '<button class="btn btn-crimson btn-sm" onclick="openPRModal()">+ Ny PR</button>'
+    + '<input id="prSearch" class="form-input" style="flex:1;max-width:200px;padding:0.35rem 0.6rem;font-size:0.82rem;" placeholder="Sök rörelse…" oninput="renderPRs()">'
+    + '</div>'
+    + '<div id="prList"></div>'
+    + '<div id="prCategoryList" style="margin-top:1rem;"></div>';
 }
 function renderPRs() {
   const el = document.getElementById('prList');
+  const catEl = document.getElementById('prCategoryList');
   if (!el) return;
   const q = (document.getElementById('prSearch')?.value || '').toLowerCase();
+
   // Best PR per movement
   const best = {};
   state.prs.forEach(p => {
     const mv = p.movement;
     if (!best[mv] || p.value > best[mv].value) best[mv] = p;
   });
-  const sorted = Object.values(best)
-    .filter(p => !q || p.movement.toLowerCase().includes(q))
-    .sort((a,b) => a.movement.localeCompare(b.movement));
 
-  if (!sorted.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🏆</div><p>Inga PRs loggade ännu.</p></div>`;
+  if (q) {
+    // Search mode: flat list of matching PRs + movements
+    const allMovements = [...new Set([
+      ...Object.keys(best),
+      ...PR_MOVEMENTS_FLAT.filter(m => m.toLowerCase().includes(q))
+    ])].filter(m => m.toLowerCase().includes(q)).sort((a,b)=>a.localeCompare(b,'sv'));
+    el.innerHTML = allMovements.map(mv => {
+      const p = best[mv];
+      const dv = p ? (p.unit==='s'
+        ? Math.floor(p.value/60)+':'+String(Math.round(p.value%60)).padStart(2,'0')
+        : p.value+(p.unit||'kg')) : '';
+      return '<div class="pr-row" style="border-color:'+(p?'rgba(74,175,125,0.35)':'var(--border)')+';" onclick="openPRModal(\''+mv.replace(/'/g,"\\'")+'\')">'+
+        '<span class="pr-name" style="color:'+(p?'var(--green)':'var(--text)')+';">'+mv+'</span>'+
+        (p?'<span style="font-size:0.65rem;color:var(--muted);flex-shrink:0;">'+formatDate(p.date)+'</span>':'')+
+        (dv?'<span class="pr-val">'+dv+'</span>':'<span style="color:var(--border);font-size:0.8rem;">—</span>')+
+        '</div>';
+    }).join('') || '<div class="empty-state"><p>Inga träffar</p></div>';
+    if (catEl) catEl.innerHTML = '';
     return;
   }
-  el.innerHTML = sorted.map(p => {
-    const dv = p.unit==='s'
-      ? (Math.floor(p.value/60)+':'+String(Math.round(p.value%60)).padStart(2,'0'))
-      : p.value + (p.unit||'kg');
-    return `<div class="pr-row" onclick="editPR('${p.id}')">
-      <span class="pr-name">${p.movement}</span>
-      <span style="font-size:0.68rem;color:var(--muted);flex-shrink:0;">${formatDate(p.date)}</span>
-      <span class="pr-val">${dv}</span>
-    </div>`;
-  }).join('');
+
+  // No search: show logged PRs at top, then category lists
+  el.innerHTML = '';
+  if (catEl) {
+    catEl.innerHTML = Object.entries(PR_MOVEMENTS).map(([cat, moves]) => {
+      const rows = moves.map(mv => {
+        const p = best[mv];
+        const dv = p ? (p.unit==='s'
+          ? Math.floor(p.value/60)+':'+String(Math.round(p.value%60)).padStart(2,'0')
+          : p.value+(p.unit||'kg')) : '';
+        return '<div class="pr-row" style="border-color:'+(p?'rgba(74,175,125,0.35)':'var(--border)')+';" onclick="openPRModal(\''+mv.replace(/'/g,"\\'")+'\')">'+
+          '<span class="pr-name" style="color:'+(p?'var(--green)':'var(--text)')+';">'+mv+'</span>'+
+          (p?'<span style="font-size:0.65rem;color:var(--muted);flex-shrink:0;">'+formatDate(p.date)+'</span>':'')+
+          (dv?'<span class="pr-val">'+dv+'</span>':'<span style="color:var(--border);font-size:0.8rem;">—</span>')+
+          '</div>';
+      }).join('');
+      const doneCount = moves.filter(mv => best[mv]).length;
+      return '<div style="margin-bottom:1.25rem;">'
+        + '<div style="font-family:Bebas Neue;font-size:0.95rem;letter-spacing:0.1em;color:var(--crimson);margin-bottom:0.4rem;padding-bottom:0.3rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">'
+        + '<span>'+cat+'</span>'
+        + '<span style="font-size:0.7rem;color:var(--muted);font-family:Barlow Condensed;">'+(doneCount||'0')+'/'+moves.length+'</span>'
+        + '</div>'
+        + rows
+        + '</div>';
+    }).join('');
+  }
 }
 function editPR(id) {
   const p = state.prs.find(x => x.id === id);
@@ -2171,21 +2263,11 @@ function mlSwitch(tab) {
   if(tab==='sessions'){
     const s=(d.sessions||[]).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     if(!s.length){b.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><p>Inga sessions.</p></div>';return;}
-    b.innerHTML=s.map((item,i)=>{
-      const id=`mls_${i}`;
-      return `<div class="log-entry">
-        <div class="log-entry-header" onclick="toggleLogEntry('${id}')">
-          <span class="log-badge" style="color:var(--crimson);border-color:var(--crimson);">${item.type||'SESSION'}</span>
-          <span style="font-family:'Barlow Condensed';font-weight:700;font-size:0.85rem;flex:1;">${item.name||'Session'}</span>
-          <span style="font-size:0.7rem;color:var(--muted);">${formatDate(item.date)}</span>
-          <span style="color:var(--muted);font-size:0.7rem;">▼</span>
-        </div>
-        <div class="log-entry-body" id="${id}">
-          ${item.score?`<div style="font-family:'Bebas Neue';font-size:1.1rem;color:var(--green);">Score: ${item.score}</div>`:''}
-          ${item.notes?`<div style="font-size:0.8rem;color:var(--muted);white-space:pre-wrap;">${item.notes}</div>`:''}
-          ${item.parts?Object.entries(item.parts).map(([k,v])=>'<div style="margin-top:0.4rem;padding:0.4rem;background:var(--card2);border-radius:4px;"><div style="font-size:0.7rem;color:var(--muted);">'+k+'</div><div style="font-size:0.8rem;">'+v+'</div></div>').join(''):''}
-        </div>
-      </div>`;}).join('');
+    b.innerHTML=s.map(function(item,i){
+      const id='mls_'+i;
+      const ph=item.parts?Object.entries(item.parts).map(function(e){return '<div style="margin-top:0.4rem;padding:0.4rem;background:var(--card2);border-radius:4px;"><div style="font-size:0.7rem;color:var(--muted);">'+e[0]+'</div><div style="font-size:0.8rem;">'+e[1]+'</div></div>';}).join(''):'';
+      return '<div class="log-entry"><div class="log-entry-header" onclick="toggleLogEntry(\''+id+'\')"><span class="log-badge" style="color:var(--crimson);">'+(item.type||'SESSION')+'</span><span style="font-family:Barlow Condensed;font-weight:700;flex:1;">'+(item.name||'Session')+'</span><span style="font-size:0.7rem;color:var(--muted);">'+formatDate(item.date)+'</span><span>▼</span></div><div class="log-entry-body" id="'+id+'">'+(item.score?'<div style="color:var(--green);font-family:Bebas Neue;">Score: '+item.score+'</div>':'')+(item.notes?'<div style="font-size:0.8rem;white-space:pre-wrap;">'+item.notes+'</div>':'')+ph+'</div></div>';
+    }).join('');
   } else {
     const p=(d.prs||[]).sort((a,b)=>a.movement.localeCompare(b.movement));
     if(!p.length){b.innerHTML='<div class="empty-state"><div class="empty-icon">🏆</div><p>Inga PRs.</p></div>';return;}
