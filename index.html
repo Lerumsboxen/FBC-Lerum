@@ -2389,7 +2389,26 @@ function adminSyncMembers() { fetchMembers().then(()=>showToast('✓ Lag uppdate
 
 // ── SERVICE WORKER ────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // Check for updates every time the app comes to foreground
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) reg.update();
+    });
+  }).catch(() => {});
+
+  // Listen for the SW telling us a new version is active — reload to get it
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'SW_UPDATED') {
+      showToast('🔄 App uppdaterad — laddar om…', 2000);
+      setTimeout(() => window.location.reload(true), 2000);
+    }
+  });
+
+  // Also reload if the SW controller changes (new SW took over)
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) { refreshing = true; window.location.reload(true); }
+  });
 }
 
 // ── STARTUP ───────────────────────────────────────────────────────

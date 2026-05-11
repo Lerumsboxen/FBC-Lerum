@@ -1,40 +1,67 @@
-// FBC Lerum Service Worker — Offline-first PWA
-const CACHE = 'fbclerum-v3';
-const ASSETS = [
-  './',
-  './index.html',
-  './app.js',
+// FBC Lerum Service Worker — Network-first for HTML, cache-first for static assets
+const CACHE = 'fbclerum-v5';
+const STATIC_ASSETS = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&family=Barlow:ital,wght@0,400;0,600;1,400&display=swap',
 ];
 
+// On install: cache static assets and skip waiting immediately
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then(c => c.addAll(STATIC_ASSETS))
+      .then(() => self.skipWaiting()) // take over immediately, don't wait
   );
 });
 
+// On activate: delete ALL old caches and claim all clients immediately
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(keys.map(k => caches.delete(k)))) // delete ALL caches
+      .then(() => self.clients.claim()) // take control of all open tabs immediately
+      .then(() => {
+        // Tell all clients to reload so they get the new version
+        return self.clients.matchAll({ type: 'window' }).then(clients => {
+          clients.forEach(client => client.postMessage({ type: 'SW_UPDATED' }));
+        });
+      })
   );
 });
 
 self.addEventListener('fetch', e => {
-  // Network-first for API calls, cache-first for assets
-  if (e.request.url.includes('script.google.com')) {
+  const url = new URL(e.request.url);
+
+  // Always network-first for the Google Apps Script API
+  if (url.hostname.includes('script.google.com')) {
     e.respondWith(
-      fetch(e.request).catch(() => new Response(JSON.stringify({ error: 'Offline' }), {
-        headers: { 'Content-Type': 'application/json' }
-      }))
+      fetch(e.request).catch(() =>
+        new Response(JSON.stringify({ error: 'Offline' }), {
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
     );
     return;
   }
-  if (e.request.url.includes('fonts.googleapis.com') || e.request.url.includes('fonts.gstatic.com')) {
+
+  // Network-first for HTML — always try to get the latest index.html
+  if (url.pathname.endsWith('.html') || url.pathname === '/' || url.pathname.endsWith('/')) {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          // Cache the fresh response
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+          return res;
+        })
+        .catch(() => caches.match(e.request)) // fallback to cache if offline
+    );
+    return;
+  }
+
+  // Cache-first for fonts (rarely change)
+  if (url.hostname.includes('fonts.googleapis.com') || url.hostname.includes('fonts.gstatic.com')) {
     e.respondWith(
       caches.match(e.request).then(r => r || fetch(e.request).then(res => {
         const clone = res.clone();
@@ -44,7 +71,15 @@ self.addEventListener('fetch', e => {
     );
     return;
   }
+
+  // Network-first for everything else (icons, manifest etc.)
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
+    fetch(e.request)
+      .then(res => {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
