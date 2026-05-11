@@ -1165,35 +1165,65 @@ function deleteSession(id) {
 }
 
 // ── PR MODAL ─────────────────────────────────────────────────────
+// Swedish → English movement name translations
+const SV_TO_EN = {
+  'bänkpress': 'Bench Press',
+  'knäböj': 'Back Squat',
+  'marklyft': 'Deadlift',
+  'militärpress': 'Strict Press',
+  'axelpress': 'Push Press',
+  'latsdrag': 'Lat Pulldown',
+  'rodd': 'Barbell Row',
+  'chins': 'Chin-ups',
+  'dips': 'Dips',
+  'löpning': 'Running',
+  'sprint': 'Sprint',
+  'situps': 'Sit-ups',
+  'armhävningar': 'Push-ups',
+};
+
+function translateMovement(name) {
+  if (!name) return name;
+  const lower = name.toLowerCase().trim();
+  for (const [sv, en] of Object.entries(SV_TO_EN)) {
+    if (lower === sv) return en;
+    // Also handle "Bänkpress 3RM" style
+    if (lower.startsWith(sv + ' ') || lower.startsWith(sv + ',')) {
+      return en + name.slice(sv.length);
+    }
+  }
+  return name;
+}
+
 const PR_MOVEMENTS = {
   'Barbell / Styrka': [
     'Back Squat','Front Squat','Deadlift','Bench Press',
     'Power Clean','Clean','Snatch','Push Press','Strict Press',
     'Romanian Deadlift','Barbell Row','Hip Thrust',
+    'Barbell Seal Row','Barbell Hip Thrust',
   ],
   'Löpning': [
     '20m Sprint','30m Sprint','40m Sprint','60m Sprint','100m Sprint',
-    '200m Löpning','400m Löpning','800m Löpning','1km Löpning',
-    '1.5km Löpning','3km Löpning','5km Löpning',
+    '200m Run','400m Run','800m Run','1km Run',
+    '1.5km Run','3km Run','5km Run',
   ],
   'Rodd / Cykel': [
-    '500m Rodd','1000m Rodd','2000m Rodd','5km Rodd',
+    '500m Row','1000m Row','2000m Row','5km Row',
     '500m AirBike','1000m AirBike',
   ],
   'Gymnastics': [
     'Pull-ups','Chin-ups','Dips','Push-ups','Handstand Push-ups',
     'Muscle-ups','Toes to Bar','Knees to Elbows',
-    'L-Sit (tid)','Plank (tid)','Wall Sit (tid)',
+    'L-Sit (time)','Plank (time)','Wall Sit (time)',
   ],
   'Hopp / Explosivitet': [
     'Broad Jump','Vertical Jump','Box Jump','Triple Hop',
   ],
   'Övrigt': [
-    'Bänkpress','Hantelpress','Latsdrag','Chins',
-    'Barbell Seal Row','Barbell Hip Thrust',
+    'Lat Pulldown','Dumbbell Press','Dumbbell Row',
   ],
 };
-// Flat list for backwards compat
+// Flat list for datalist/search
 const PR_MOVEMENTS_FLAT = Object.values(PR_MOVEMENTS).flat();
 function openPRModal(prefillMovement) {
   const today = localIso(new Date());
@@ -1223,10 +1253,18 @@ function openPRModal(prefillMovement) {
               <option>kg</option><option>s</option><option>m</option><option>rep</option>
             </select>
           </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Reps (RM)</label>
+            <input class="form-input" id="prReps" type="number" min="1" max="20" placeholder="1" value="1">
+          </div>
           <div class="form-group" style="flex:1.5;">
             <label class="form-label">Datum</label>
             <input class="form-input" id="prDate" type="date" value="${today}">
           </div>
+        </div>
+        <div style="font-size:0.7rem;color:var(--muted);margin:-0.5rem 0 0.5rem;">
+          ${document.getElementById ? '' : ''}
+          Reps=1 → 1RM, Reps=3 → 3RM, Reps=5 → 5RM osv.
         </div>
         <div class="form-group">
           <label class="form-label">Anteckningar</label>
@@ -1246,14 +1284,19 @@ function openPRModal(prefillMovement) {
 }
 
 function savePR() {
-  const movement = document.getElementById('prMov')?.value?.trim();
+  const rawMovement = document.getElementById('prMov')?.value?.trim();
+  const movement = translateMovement(rawMovement) || rawMovement;
   const value = parseFloat(document.getElementById('prVal')?.value);
   if (!movement || isNaN(value)) { showToast('Ange rörelse och värde'); return; }
+  const reps = parseInt(document.getElementById('prReps')?.value) || 1;
+  const rmLabel = reps === 1 ? '1RM' : reps + 'RM';
   const pr = {
     id:       uid(),
     movement,
     value,
     unit:     document.getElementById('prUnit')?.value,
+    reps,
+    rmLabel,
     date:     document.getElementById('prDate')?.value,
     notes:    document.getElementById('prNotes')?.value?.trim(),
   };
@@ -1422,21 +1465,48 @@ function buildWeekStrip() {
   return '<div style="display:flex;gap:0.25rem;">' + cells + '</div>';
 }
 // ── PR LOOKUP ─────────────────────────────────────────────────
-function getBestPR(movementName) {
+function getBestPR(movementName, targetReps) {
   if (!movementName) return null;
   const name = movementName.toLowerCase().trim();
-  let candidates = (state.prs || []).filter(p => p.movement && p.movement.toLowerCase() === name);
-  if (!candidates.length) {
-    candidates = (state.prs || []).filter(p => p.movement &&
-      (p.movement.toLowerCase().includes(name) || name.includes(p.movement.toLowerCase())));
+  // Also try translated name
+  const translated = translateMovement(movementName).toLowerCase().trim();
+  let candidates = (state.prs || []).filter(p => {
+    if (!p.movement) return false;
+    const pn = p.movement.toLowerCase();
+    return pn === name || pn === translated ||
+      pn.includes(name) || name.includes(pn) ||
+      pn.includes(translated) || translated.includes(pn);
+  });
+  if (!candidates.length) return null;
+  if (targetReps) {
+    const tr = parseInt(targetReps);
+    // Try exact reps match first
+    const exact = candidates.filter(p => (p.reps||1) === tr).sort((a,b)=>b.value-a.value)[0];
+    if (exact) return exact;
+    // Fall back to 1RM and mark for conversion
+    const oneRM = candidates.filter(p => (p.reps||1) === 1).sort((a,b)=>b.value-a.value)[0];
+    if (oneRM) return { ...oneRM, _estimatedFrom1RM: true, _targetReps: tr };
   }
-  return candidates.sort((a,b) => b.value - a.value)[0] || null;
+  return candidates.sort((a,b) => b.value - a.value)[0];
 }
 
-function calcKg(pct, movementName) {
-  const pr = getBestPR(movementName);
+function brzyckiConvert(weight, fromReps, toReps) {
+  // Convert weight at fromReps to estimated weight at toReps using Brzycki formula
+  if (fromReps === toReps) return weight;
+  const oneRM = weight / (1.0278 - 0.0278 * fromReps);
+  if (toReps === 1) return Math.round(oneRM * 2) / 2;
+  return Math.round(oneRM * (1.0278 - 0.0278 * toReps) * 2) / 2;
+}
+
+function calcKg(pct, movementName, targetReps) {
+  const pr = getBestPR(movementName, targetReps || 1);
   if (!pr) return null;
-  return Math.round(pr.value * pct / 100 * 2) / 2;
+  let baseWeight = pr.value;
+  // If we estimated from 1RM, convert to the target RM weight first
+  if (pr._estimatedFrom1RM && pr._targetReps) {
+    baseWeight = brzyckiConvert(pr.value, 1, pr._targetReps);
+  }
+  return Math.round(baseWeight * pct / 100 * 2) / 2;
 }
 
 // ── ENRICH TEXT ────────────────────────────────────────────────
@@ -1504,6 +1574,15 @@ function parsePartScheme(text) {
     const m = l.match(/(\d{2,3}(?:[,.]\d+)?)\s*%/);
     if (m) { const v=parseFloat(m[1].replace(',','.')); if(v>=10&&v<=100){pct=v;break;} }
   }
+  // Detect RM type: "of 3RM", "5RM", "av 3RM" etc.
+  let rmReps = 1;
+  for (const l of filtered) {
+    const rmMatch = l.match(/of\s+(\d+)\s*RM|av\s+(\d+)\s*RM|@\s*(\d+)RM|(\d+)\s*RM/i);
+    if (rmMatch) {
+      rmReps = parseInt(rmMatch[1]||rmMatch[2]||rmMatch[3]||rmMatch[4]||1);
+      break;
+    }
+  }
 
   // Movement name: from "% of 1RM <Movement>" or from line with lift keyword
   const liftRe = /snatch|clean|jerk|squat|deadlift|press|pull|curl|row|bench|lunge|thruster/i;
@@ -1522,8 +1601,8 @@ function parsePartScheme(text) {
     }
   }
 
-  const weight = (pct && movement) ? calcKg(pct, movement) : null;
-  return { sets, reps, weight, movement, pct };
+  const weight = (pct && movement) ? calcKg(pct, movement, rmReps) : null;
+  return { sets, reps, weight, movement, pct, rmReps };
 }
 
 // ── SET ROW COUNTER ────────────────────────────────────────────
@@ -1689,7 +1768,7 @@ function autoCheckPR(movementHint, setsData, dateStr) {
   const reps = heaviest.reps || 1;
   const rmLabel = reps === 1 ? '1RM' : reps + 'RM';
   // Try to extract movement name from hint (strip "Part A" prefix if present)
-  let movement = movementHint.replace(/^Part\s+[A-Z]\s*[.:-]?\s*/i, '').trim() || movementHint;
+  let movement = translateMovement(movementHint.replace(/^Part\s+[A-Z]\s*[.:-]?\s*/i, '').trim() || movementHint);
   // Match against known PR movements
   const flat = PR_MOVEMENTS_FLAT;
   const matched = flat.find(m => movement.toLowerCase().includes(m.toLowerCase()) || m.toLowerCase().includes(movement.toLowerCase())) || movement;
@@ -1738,10 +1817,11 @@ function renderPRs() {
       const dv = p ? (p.unit==='s'
         ? Math.floor(p.value/60)+':'+String(Math.round(p.value%60)).padStart(2,'0')
         : p.value+(p.unit||'kg')) : '';
+      const rmTag = (p && p.reps && p.reps > 1) ? ' <span style="font-size:0.6rem;color:var(--muted);font-family:Barlow Condensed;">'+p.reps+'RM</span>' : (p ? ' <span style="font-size:0.6rem;color:var(--muted);font-family:Barlow Condensed;">1RM</span>' : '');
       return '<div class="pr-row" style="border-color:'+(p?'rgba(74,175,125,0.35)':'var(--border)')+';" onclick="openPRModal(\''+mv.replace(/'/g,"\\'")+'\')">'+
         '<span class="pr-name" style="color:'+(p?'var(--green)':'var(--text)')+';">'+mv+'</span>'+
         (p?'<span style="font-size:0.65rem;color:var(--muted);flex-shrink:0;">'+formatDate(p.date)+'</span>':'')+
-        (dv?'<span class="pr-val">'+dv+'</span>':'<span style="color:var(--border);font-size:0.8rem;">—</span>')+
+        (dv?'<span class="pr-val">'+dv+rmTag+'</span>':'<span style="color:var(--border);font-size:0.8rem;">—</span>')+
         '</div>';
     }).join('') || '<div class="empty-state"><p>Inga träffar</p></div>';
     if (catEl) catEl.innerHTML = '';
