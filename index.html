@@ -1519,7 +1519,9 @@ function calcKg(pct, movementName, targetReps) {
 // Highlights %, kg, and inserts calculated weights from PRs
 function enrichText(html) {
   if (!html) return '';
-  const parts = html.split(/(<[^>]+>)/);
+  // Convert literal newlines (from Sheets cells) to <br> before anything else
+  const withBr = html.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
+  const parts = withBr.split(/(<[^>]+>)/);
   return parts.map(p => {
     if (p.startsWith('<')) return p;
     return p
