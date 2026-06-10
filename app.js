@@ -1113,6 +1113,7 @@ async function adminLoadAllSessions() {
       </div>
       ${byMember[name].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map((s,idx)=>{
         const sid = `adms_${name.replace(/\s/g,'_')}_${idx}`;
+        const prog = program[s.date] || null;
         return `<div class="admin-session-card">
           <div class="admin-session-header" onclick="adminToggleSession('${sid}')">
             <span class="log-badge" style="color:var(--crimson);border-color:var(--crimson);">${s.type||'SESSION'}</span>
@@ -1123,6 +1124,12 @@ async function adminLoadAllSessions() {
           <div class="admin-session-body" id="${sid}">
             ${s.score?`<div style="font-family:'Bebas Neue';font-size:1.1rem;color:var(--green);margin-top:0.4rem;">Score: ${s.score}</div>`:''}
             ${s.notes?`<div style="font-size:0.8rem;color:var(--muted);margin-top:0.3rem;white-space:pre-wrap;">${s.notes}</div>`:''}
+            ${prog?`
+            <div style="margin-top:0.5rem;padding:0.4rem 0.6rem;background:rgba(201,162,39,0.08);border-left:2px solid var(--gold);border-radius:4px;">
+              <div style="font-family:'Barlow Condensed';font-weight:700;font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold);">Dagens program</div>
+              ${prog.strength?`<div style="font-size:0.78rem;white-space:pre-wrap;margin-top:0.3rem;"><span style="font-weight:700;">💪 Styrka:</span> ${prog.strength}</div>`:''}
+              ${prog.workout?`<div style="font-size:0.78rem;white-space:pre-wrap;margin-top:0.3rem;"><span style="font-weight:700;">🏒 WOD:</span> ${prog.workout}</div>`:''}
+            </div>`:''}
             ${s.parts?Object.entries(s.parts).map(([k,v])=>`
             <div style="margin-top:0.5rem;padding:0.4rem 0.6rem;background:var(--card2);border-radius:4px;">
               <div style="font-family:'Barlow Condensed';font-weight:700;font-size:0.72rem;color:var(--muted);">${k}</div>
