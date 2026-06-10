@@ -37,7 +37,10 @@ function localIso(d) {
 
 function formatDate(iso) {
   if (!iso) return '';
-  const d = new Date(iso + 'T00:00:00');
+  const s = String(iso);
+  // Plain 'yyyy-mm-dd' is parsed as local midnight; full timestamps as-is
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00') : new Date(s);
+  if (isNaN(d)) return s;
   return d.toLocaleDateString('sv-SE', { weekday:'short', month:'short', day:'numeric' });
 }
 
@@ -297,6 +300,15 @@ async function fetchMembers() {
   } catch(e) { console.warn('Fetch members failed:', e); }
 }
 
+// Server may return full timestamps (Sheets converts date cells); reduce to 'yyyy-mm-dd'
+function normalizeDate(v) {
+  if (!v) return v;
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return isNaN(d) ? s : localIso(d);
+}
+
 async function cloudPull() {
   if (!SCRIPT_URL || !profile.name) return;
   try {
@@ -305,12 +317,12 @@ async function cloudPull() {
       // Merge — keep local items not on server
       const serverIds = new Set(data.sessions.map(s => String(s.id)));
       const localOnly = state.sessions.filter(s => !serverIds.has(String(s.id)));
-      state.sessions = [...data.sessions, ...localOnly];
+      state.sessions = [...data.sessions, ...localOnly].map(s => ({ ...s, date: normalizeDate(s.date) }));
     }
     if (data.prs) {
       const serverIds = new Set(data.prs.map(p => String(p.id)));
       const localOnly = state.prs.filter(p => !serverIds.has(String(p.id)));
-      state.prs = [...data.prs, ...localOnly];
+      state.prs = [...data.prs, ...localOnly].map(p => ({ ...p, date: normalizeDate(p.date) }));
     }
     save();
     if (currentSection === 'log') renderLog();
